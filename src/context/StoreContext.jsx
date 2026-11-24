@@ -170,6 +170,71 @@ export function StoreProvider({ children }) {
       // Audit
       addAuditEvent: (candidateId, type, event, examId) => setState((s) => log(s, candidateId, type, event, examId)),
 
+      // Live proctoring
+      recordProctorEvent: (candidateId, type, event, examId) =>
+        setState((s) => {
+          let next = log(s, candidateId, type, event, examId);
+          if (type !== 'Warning') return next;
+          const limit = Math.max(1, s.settings.security.maxWarningsBeforeFlag || 3);
+          let autoFlag = false;
+          next = {
+            ...next,
+            candidates: next.candidates.map((c) => {
+              if (c.id !== candidateId) return c;
+              const warnings = c.warnings + 1;
+              autoFlag = warnings % limit === 0;
+              return { ...c, warnings, cheatingFlags: c.cheatingFlags + (autoFlag ? 1 : 0), lastActive: new Date().toISOString() };
+            }),
+          };
+          return autoFlag ? log(next, candidateId, 'Warning', `Auto-flagged: reached ${limit} warnings`, examId) : next;
+        }),
+      flagCandidate: (candidateId, reason, examId) =>
+        setState((s) =>
+          log(
+            {
+              ...s,
+              candidates: s.candidates.map((c) => (c.id === candidateId ? { ...c, cheatingFlags: c.cheatingFlags + 1 } : c)),
+            },
+            candidateId,
+            'Warning',
+            `Flagged by proctor${reason ? `: ${reason}` : ''}`,
+            examId
+          )
+        ),
+      setCandidateOnline: (candidateId, online) =>
+        setState((s) => ({
+          ...s,
+          candidates: s.candidates.map((c) =>
+            c.id === candidateId ? { ...c, online, lastActive: new Date().toISOString() } : c
+          ),
+        })),
+      addResult: ({ candidateId, examId, correct, total, timeTaken }) =>
+        setState((s) => {
+          const exam = s.exams.find((e) => e.id === examId);
+          const score = total ? Math.round((correct / total) * 100) : 0;
+          const result = {
+            id: nextId('RS'),
+            candidateId,
+            examId,
+            score,
+            correct,
+            total,
+            timeTaken,
+            submittedAt: new Date().toISOString(),
+            result: score >= (exam?.passMark ?? 60) ? 'Pass' : 'Fail',
+          };
+          return log(
+            {
+              ...s,
+              results: [result, ...s.results.filter((r) => !(r.candidateId === candidateId && r.examId === examId))],
+            },
+            candidateId,
+            'Normal',
+            `Submitted exam — scored ${score}%`,
+            examId
+          );
+        }),
+
       // Settings
       updateSettings: (section, values) =>
         setState((s) => ({ ...s, settings: { ...s.settings, [section]: { ...s.settings[section], ...values } } })),

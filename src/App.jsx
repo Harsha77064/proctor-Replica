@@ -2,8 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Library, ClipboardList, Trophy, MessageSquareText, ShieldCheck, BarChart3, Settings as SettingsIcon,
-  Menu, Search, Bell, Sun, Moon, AlertTriangle, Flag,
+  Menu, Search, Bell, Sun, Moon, AlertTriangle, Flag, Video,
 } from 'lucide-react';
+import { LiveProvider, useLive } from './live/LiveContext.jsx';
+import LiveMonitoring from './pages/LiveMonitoring.jsx';
+import CandidatePortal from './pages/CandidatePortal.jsx';
 import { useStore, byId, timeAgo } from './context/StoreContext.jsx';
 import { LogoMark, Avatar } from './components/UI.jsx';
 import Dashboard from './pages/Dashboard.jsx';
@@ -24,17 +27,37 @@ function initialTheme() {
   return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
-export default function App() {
-  const { settings, exams, candidates, auditLogs } = useStore();
-  const [open, setOpen] = useState(false);
+function useTheme() {
   const [theme, setTheme] = useState(initialTheme);
-  const org = settings.organization;
-  const location = useLocation();
-
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     try { localStorage.setItem(THEME_KEY, theme); } catch { /* ignore */ }
   }, [theme]);
+  return [theme, setTheme];
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/exam" element={<CandidateApp />} />
+      <Route path="/*" element={<LiveProvider><AdminApp /></LiveProvider>} />
+    </Routes>
+  );
+}
+
+function CandidateApp() {
+  useTheme();
+  return <CandidatePortal />;
+}
+
+function AdminApp() {
+  const { settings, exams, candidates, auditLogs } = useStore();
+  const live = useLive();
+  const [open, setOpen] = useState(false);
+  const [theme, setTheme] = useTheme();
+  const org = settings.organization;
+  const location = useLocation();
+  const camerasOnline = live.peers.filter((p) => !p.left).length;
 
   const liveCount = exams.filter((e) => e.status === 'Live').length;
   const flagCount = candidates.reduce((a, c) => a + c.cheatingFlags, 0);
@@ -48,6 +71,7 @@ export default function App() {
     { to: '/results', label: 'Results', icon: Trophy },
     { to: '/feedback', label: 'Feedback', icon: MessageSquareText },
     { section: 'Monitoring' },
+    { to: '/live-monitoring', label: 'Live Monitoring', icon: Video, badge: camerasOnline ? `${camerasOnline} on air` : null, live: true },
     { to: '/audit-logs', label: 'Audit Logs', icon: ShieldCheck, badge: flagCount || null },
     { to: '/reports', label: 'Reports', icon: BarChart3 },
     { section: 'System' },
@@ -116,6 +140,7 @@ export default function App() {
             <Route path="/exams" element={<Exams />} />
             <Route path="/results" element={<Results />} />
             <Route path="/feedback" element={<Feedback />} />
+            <Route path="/live-monitoring" element={<LiveMonitoring />} />
             <Route path="/audit-logs" element={<AuditLogs />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/settings" element={<Settings />} />

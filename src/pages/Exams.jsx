@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  CalendarPlus, CalendarClock, Radio, CheckCircle2, Play, Trash2, Square, Users, Wifi, AlertTriangle, Flag, Clock, BookOpen,
+  CalendarPlus, CalendarClock, Radio, Video, CheckCircle2, Play, Trash2, Square, Users, Wifi, AlertTriangle, Flag, Clock, BookOpen,
 } from 'lucide-react';
 import { useStore, byId, fmtDateTime } from '../context/StoreContext.jsx';
 import { PageHeader, Badge, Modal, Field, Empty, Tabs } from '../components/UI.jsx';
@@ -132,6 +132,7 @@ function Silhouette() {
 }
 
 function LiveExamCard({ exam, bank, candidates, onEnd }) {
+  const navigate = useNavigate();
   const elapsed = Math.max(0, Math.round((Date.now() - new Date(exam.startTime).getTime()) / 60000));
   const pct = Math.min(100, Math.round((elapsed / exam.duration) * 100));
   const remaining = Math.max(0, exam.duration - elapsed);
@@ -150,7 +151,10 @@ function LiveExamCard({ exam, bank, candidates, onEnd }) {
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Clock size={13} /> {exam.duration} min · started {fmtDateTime(exam.startTime)}</span>
           </div>
         </div>
-        <button className="btn small danger-ghost" onClick={onEnd}><Square size={13} /> End Exam</button>
+        <div className="row-actions">
+          <button className="btn small primary" onClick={() => navigate('/live-monitoring')}><Video size={13} /> Live Monitoring</button>
+          <button className="btn small danger-ghost" onClick={onEnd}><Square size={13} /> End Exam</button>
+        </div>
       </div>
       <div className="progress" title={`${pct}% of time elapsed`}><div style={{ width: `${pct}%` }} /></div>
       <div className="row-between small muted">

@@ -109,7 +109,7 @@ export default function Dashboard() {
             {stats.flags > 0 && ` ${stats.flags} cheating flags need your review.`}
           </p>
           <div className="hero-actions">
-            <button className="btn" onClick={() => navigate('/exams')}><Radio size={16} /> Monitor Live Exams</button>
+            <button className="btn" onClick={() => navigate('/live-monitoring')}><Radio size={16} /> Monitor Live Exams</button>
             <button className="btn glass" onClick={() => setShowAdd(true)}><UserPlus size={16} /> Add Candidate</button>
             <button className="btn glass" onClick={() => navigate('/exams?new=1')}><CalendarPlus size={16} /> Schedule Exam</button>
           </div>
