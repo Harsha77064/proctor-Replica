@@ -1,15 +1,18 @@
 import { useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useStore, byId, fmtDateTime } from '../context/StoreContext.jsx';
-import { PageHeader, Badge, Field, Empty } from '../components/UI.jsx';
+import { Star, Send, Trash2, MessageSquareText, CheckCircle2 } from 'lucide-react';
+import { PageHeader, Badge, Field, Empty, Person, SearchInput, Toast } from '../components/UI.jsx';
 
 const Stars = ({ value, onChange }) => (
   <div className="stars" role={onChange ? 'radiogroup' : undefined}>
     {[1, 2, 3, 4, 5].map((n) =>
       onChange ? (
-        <button type="button" key={n} className={n <= value ? 'on' : ''} onClick={() => onChange(n)} aria-label={`${n} stars`}>★</button>
+        <button type="button" key={n} className={n <= value ? 'on' : ''} onClick={() => onChange(n)} aria-label={`${n} stars`}>
+          <Star size={24} />
+        </button>
       ) : (
-        <span key={n} className={n <= value ? 'on' : ''}>★</span>
+        <span key={n} className={n <= value ? 'on' : ''}><Star size={15} /></span>
       )
     )}
   </div>
@@ -49,7 +52,7 @@ export default function Feedback() {
 
   return (
     <>
-      <PageHeader title="Feedback" subtitle="Feedback from the organization to candidates about their exams" />
+      <PageHeader title="Feedback" subtitle="Feedback from the organization to candidates about their exams" crumb="Engagement" />
 
       <div className="split">
         <section className="card">
@@ -87,8 +90,7 @@ export default function Feedback() {
               />
             </Field>
             <div className="modal-actions">
-              {sent && <span className="text-green small">Feedback sent ✓</span>}
-              <button className="btn primary">Send Feedback</button>
+              <button className="btn primary"><Send size={15} /> Send Feedback</button>
             </div>
           </form>
         </section>
@@ -96,7 +98,7 @@ export default function Feedback() {
         <section className="card">
           <div className="card-head">
             <h2>Sent Feedback ({list.length})</h2>
-            <input className="input" placeholder="Search…" value={filter} onChange={(e) => setFilter(e.target.value)} />
+            <SearchInput value={filter} onChange={setFilter} />
           </div>
           <div className="feedback-list">
             {list.map((f) => {
@@ -105,13 +107,10 @@ export default function Feedback() {
               return (
                 <article key={f.id} className="feedback-item">
                   <div className="row-between">
-                    <div>
-                      <div className="strong">{c?.name}</div>
-                      <div className="muted small">{ex?.title} · {fmtDateTime(f.sentAt)}</div>
-                    </div>
+                    <Person name={c?.name || f.candidateId} sub={`${ex?.title || ''} · ${fmtDateTime(f.sentAt)}`} />
                     <div className="row-actions">
                       <Stars value={f.rating} />
-                      <button className="icon-btn" title="Delete" onClick={() => deleteFeedback(f.id)}>🗑</button>
+                      <button className="icon-btn" title="Delete" aria-label="Delete feedback" onClick={() => deleteFeedback(f.id)}><Trash2 size={15} /></button>
                     </div>
                   </div>
                   <p>{f.message}</p>
@@ -119,10 +118,11 @@ export default function Feedback() {
                 </article>
               );
             })}
-            {!list.length && <Empty>No feedback yet.</Empty>}
+            {!list.length && <Empty icon={MessageSquareText}>No feedback yet.</Empty>}
           </div>
         </section>
       </div>
+      {sent && <Toast><CheckCircle2 size={16} color="#22c55e" /> Feedback sent to candidate</Toast>}
     </>
   );
 }

@@ -1,6 +1,6 @@
-# Proctor Replica
+# Oversee
 
-An online-proctoring admin console inspired by Proctor 360, built with React + Vite.
+**Smart online proctoring & assessment platform** — an admin console built with React + Vite.
 All data is mock/demo data stored in the browser (`localStorage`), so no backend is needed.
 
 ## Run
@@ -22,13 +22,14 @@ npm run build      # production build in dist/
 | **Feedback** | Organization → candidate feedback with rating and message; linked from Results. |
 | **Audit Logs** | Per-candidate summary (name, last active, last event, normal events, warnings, validations) and a full event log with CSV export. |
 | **Reports** | Pass/fail per exam, score distribution, department averages, candidate status, warning types, high-risk candidates, CSV exports. |
+| **Look & feel** | Light / dark theme toggle, global candidate search (Ctrl K), proctoring-alert notifications, responsive layout for phones and tablets. |
 | **Settings** | Organization (company URL, logo URL, support email), exam details, security/proctoring and notification settings. "Reset Demo Data" restores seed data. |
 
 ## Structure
 
 ```
 src/
-  App.jsx                 layout, sidebar, routes
+  App.jsx                 layout, sidebar, top bar (search, theme, alerts), routes
   context/StoreContext.jsx  app state + actions (persisted to localStorage)
   data/mockData.js        deterministic seed data
   components/UI.jsx       shared UI (cards, badges, modal, tabs, toggles)

@@ -1,4 +1,4 @@
-// Seed data for the Proctor Replica demo. Generated deterministically so
+// Seed data for the Oversee demo. Generated deterministically so
 // every fresh load (or "Reset demo data") produces the same dataset.
 
 function seeded(seed) {
@@ -177,7 +177,11 @@ export const seedExams = EXAM_DEFS.map((e, i) => {
     title: e.title,
     bankId: seedQuestionBanks[e.bank].id,
     status: e.status,
-    startTime: daysFromNow(e.day, e.status === 'Live' ? now.getHours() - 1 : 10 + (i % 4)),
+    // Live exams start relative to the real clock so they are mid-session on load.
+    startTime:
+      e.status === 'Live'
+        ? new Date(Date.now() - (18 + i * 6) * 60000).toISOString()
+        : daysFromNow(e.day, 10 + (i % 4)),
     duration: e.duration,
     passMark: 60,
     candidates: assigned,

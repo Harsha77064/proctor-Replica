@@ -9,7 +9,7 @@ import {
   seedSettings,
 } from '../data/mockData.js';
 
-const STORAGE_KEY = 'proctor-replica-state-v1';
+const STORAGE_KEY = 'oversee-state-v1';
 
 const initialState = () => ({
   candidates: structuredClone(seedCandidates),

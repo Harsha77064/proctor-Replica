@@ -4,9 +4,11 @@ import {
 } from 'recharts';
 import { useStore, byId } from '../context/StoreContext.jsx';
 import { DEPARTMENTS } from '../data/mockData.js';
-import { PageHeader } from '../components/UI.jsx';
+import { Download, ShieldAlert } from 'lucide-react';
+import { PageHeader, Person, CountPill, Empty } from '../components/UI.jsx';
 
-const C = { blue: '#2563eb', green: '#16a34a', red: '#dc2626', amber: '#d97706', purple: '#7c3aed', gray: '#94a3b8' };
+const C = { blue: '#5b5bf0', green: '#10b981', red: '#ef4444', amber: '#f59e0b', purple: '#8b5cf6', gray: '#94a3b8' };
+const TT = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text)' };
 
 function download(name, rows) {
   const csv = rows.map((r) => r.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -84,7 +86,7 @@ export default function Reports() {
 
   return (
     <>
-      <PageHeader title="Reports" subtitle="Performance and proctoring analytics">
+      <PageHeader title="Reports" subtitle="Performance and proctoring analytics" crumb="Monitoring">
         <button
           className="btn"
           onClick={() =>
@@ -94,7 +96,7 @@ export default function Reports() {
             ])
           }
         >
-          ⬇ Exam Report
+          <Download size={15} /> Exam Report
         </button>
         <button
           className="btn"
@@ -112,7 +114,7 @@ export default function Reports() {
             ])
           }
         >
-          ⬇ Candidate Report
+          <Download size={15} /> Candidate Report
         </button>
       </PageHeader>
 
@@ -121,13 +123,13 @@ export default function Reports() {
           <h2>Pass vs Fail by Exam</h2>
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={examReport}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
-              <XAxis dataKey="short" interval={0} tick={{ fontSize: 12, fill: 'var(--muted)' }} />
-              <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: 'var(--muted)' }} />
-              <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)' }} />
+              <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="var(--border)" />
+              <XAxis dataKey="short" interval={0} tick={{ fontSize: 12, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={TT} cursor={{ fill: 'var(--surface-3)' }} />
               <Legend />
-              <Bar dataKey="Pass" stackId="a" fill={C.green} radius={[0, 0, 0, 0]} />
-              <Bar dataKey="Fail" stackId="a" fill={C.red} radius={[4, 4, 0, 0]} />
+              <Bar dataKey="Pass" stackId="a" fill={C.green} />
+              <Bar dataKey="Fail" stackId="a" fill={C.red} radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </section>
@@ -136,11 +138,11 @@ export default function Reports() {
           <h2>Score Distribution</h2>
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={distribution}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
-              <XAxis dataKey="range" tick={{ fontSize: 12, fill: 'var(--muted)' }} />
-              <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: 'var(--muted)' }} />
-              <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)' }} />
-              <Bar dataKey="count" name="Candidates" fill={C.blue} radius={[4, 4, 0, 0]} />
+              <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="var(--border)" />
+              <XAxis dataKey="range" tick={{ fontSize: 12, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={TT} cursor={{ fill: 'var(--surface-3)' }} />
+              <Bar dataKey="count" name="Candidates" fill={C.blue} radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </section>
@@ -149,11 +151,11 @@ export default function Reports() {
           <h2>Average Score by Department</h2>
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={deptReport} layout="vertical" margin={{ left: 20 }}>
-              <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--border)" />
-              <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 12, fill: 'var(--muted)' }} />
-              <YAxis type="category" dataKey="department" width={90} tick={{ fontSize: 12, fill: 'var(--muted)' }} />
-              <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)' }} />
-              <Bar dataKey="avg" name="Average %" fill={C.purple} radius={[0, 4, 4, 0]} />
+              <CartesianGrid strokeDasharray="4 4" horizontal={false} stroke="var(--border)" />
+              <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 12, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
+              <YAxis type="category" dataKey="department" width={90} tick={{ fontSize: 12, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={TT} cursor={{ fill: 'var(--surface-3)' }} />
+              <Bar dataKey="avg" name="Average %" fill={C.purple} radius={[0, 6, 6, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </section>
@@ -162,10 +164,10 @@ export default function Reports() {
           <h2>Candidate Status</h2>
           <ResponsiveContainer width="100%" height={280}>
             <PieChart>
-              <Pie isAnimationActive={false} data={statusData} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} paddingAngle={2} label>
+              <Pie isAnimationActive={false} data={statusData} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} paddingAngle={3} stroke="none" label>
                 {statusData.map((d) => <Cell key={d.name} fill={d.color} />)}
               </Pie>
-              <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)' }} />
+              <Tooltip contentStyle={TT} cursor={{ fill: 'var(--surface-3)' }} />
               <Legend />
             </PieChart>
           </ResponsiveContainer>
@@ -175,11 +177,11 @@ export default function Reports() {
           <h2>Proctoring Warnings by Type</h2>
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={eventTypes} layout="vertical" margin={{ left: 40 }}>
-              <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--border)" />
-              <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12, fill: 'var(--muted)' }} />
-              <YAxis type="category" dataKey="event" width={150} tick={{ fontSize: 11, fill: 'var(--muted)' }} />
-              <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)' }} />
-              <Bar dataKey="count" name="Occurrences" fill={C.amber} radius={[0, 4, 4, 0]} />
+              <CartesianGrid strokeDasharray="4 4" horizontal={false} stroke="var(--border)" />
+              <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
+              <YAxis type="category" dataKey="event" width={150} tick={{ fontSize: 11, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={TT} cursor={{ fill: 'var(--surface-3)' }} />
+              <Bar dataKey="count" name="Occurrences" fill={C.amber} radius={[0, 6, 6, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </section>
@@ -194,20 +196,21 @@ export default function Reports() {
               <tbody>
                 {flagged.map((c) => (
                   <tr key={c.id}>
-                    <td><div className="strong">{c.name}</div><div className="muted small mono">{c.id}</div></td>
+                    <td><Person name={c.name} sub={c.id} /></td>
                     <td>{c.department}</td>
-                    <td className="text-amber strong">{c.warnings}</td>
-                    <td className="text-red strong">{c.cheatingFlags}</td>
+                    <td><CountPill value={c.warnings} tone="amber" /></td>
+                    <td><CountPill value={c.cheatingFlags} tone="red" /></td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            {!flagged.length && <Empty icon={ShieldAlert}>No high-risk candidates.</Empty>}
           </div>
         </section>
       </div>
 
       <section className="card">
-        <h2>Exam Summary</h2>
+        <div className="card-head"><div><h2>Exam Summary</h2><div className="card-sub">Per-exam attempts, pass rate and score range</div></div></div>
         <div className="table-wrap">
           <table>
             <thead>
@@ -218,8 +221,8 @@ export default function Reports() {
                 <tr key={e.id}>
                   <td className="strong">{byId(exams, e.id)?.title}</td>
                   <td>{e.attempts}</td>
-                  <td className="text-green">{e.Pass}</td>
-                  <td className="text-red">{e.Fail}</td>
+                  <td><CountPill value={e.Pass} tone="green" /></td>
+                  <td><CountPill value={e.Fail} tone="red" /></td>
                   <td>{Math.round((e.Pass / e.attempts) * 100)}%</td>
                   <td>{e.avg}%</td>
                   <td>{e.high}%</td>

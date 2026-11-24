@@ -1,6 +1,11 @@
-import { useState } from 'react';
-import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
-import { useStore } from './context/StoreContext.jsx';
+import { useEffect, useRef, useState } from 'react';
+import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import {
+  LayoutDashboard, Library, ClipboardList, Trophy, MessageSquareText, ShieldCheck, BarChart3, Settings as SettingsIcon,
+  Menu, Search, Bell, Sun, Moon, AlertTriangle, Flag,
+} from 'lucide-react';
+import { useStore, byId, timeAgo } from './context/StoreContext.jsx';
+import { LogoMark, Avatar } from './components/UI.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import QuestionBanks from './pages/QuestionBanks.jsx';
 import Exams from './pages/Exams.jsx';
@@ -10,50 +15,100 @@ import AuditLogs from './pages/AuditLogs.jsx';
 import Reports from './pages/Reports.jsx';
 import Settings from './pages/Settings.jsx';
 
-const NAV = [
-  { to: '/dashboard', label: 'Dashboard', icon: '▦' },
-  { to: '/question-banks', label: 'Question Bank', icon: '❓' },
-  { to: '/exams', label: 'Exams', icon: '📝' },
-  { to: '/results', label: 'Results', icon: '🏆' },
-  { to: '/feedback', label: 'Feedback', icon: '💬' },
-  { to: '/audit-logs', label: 'Audit Logs', icon: '🛡' },
-  { to: '/reports', label: 'Reports', icon: '📊' },
-  { to: '/settings', label: 'Settings', icon: '⚙' },
-];
+const THEME_KEY = 'oversee-theme';
+function initialTheme() {
+  try {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved) return saved;
+  } catch { /* storage unavailable */ }
+  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
 
 export default function App() {
-  const { settings } = useStore();
+  const { settings, exams, candidates, auditLogs } = useStore();
   const [open, setOpen] = useState(false);
+  const [theme, setTheme] = useState(initialTheme);
   const org = settings.organization;
+  const location = useLocation();
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try { localStorage.setItem(THEME_KEY, theme); } catch { /* ignore */ }
+  }, [theme]);
+
+  const liveCount = exams.filter((e) => e.status === 'Live').length;
+  const flagCount = candidates.reduce((a, c) => a + c.cheatingFlags, 0);
+
+  const NAV = [
+    { section: 'Overview' },
+    { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { section: 'Assessment' },
+    { to: '/question-banks', label: 'Question Bank', icon: Library },
+    { to: '/exams', label: 'Exams', icon: ClipboardList, badge: liveCount ? `${liveCount} live` : null, live: true },
+    { to: '/results', label: 'Results', icon: Trophy },
+    { to: '/feedback', label: 'Feedback', icon: MessageSquareText },
+    { section: 'Monitoring' },
+    { to: '/audit-logs', label: 'Audit Logs', icon: ShieldCheck, badge: flagCount || null },
+    { to: '/reports', label: 'Reports', icon: BarChart3 },
+    { section: 'System' },
+    { to: '/settings', label: 'Settings', icon: SettingsIcon },
+  ];
 
   return (
     <div className={`layout ${open ? 'nav-open' : ''}`}>
       <aside className="sidebar">
         <div className="brand">
-          <img src={org.logoUrl} alt="" onError={(e) => (e.currentTarget.style.visibility = 'hidden')} />
+          <div className="brand-mark"><LogoMark /></div>
           <div>
-            <div className="brand-name">Proctor Replica</div>
-            <div className="brand-org">{org.name}</div>
+            <div className="brand-name">Oversee</div>
+            <div className="brand-tag">Smart Proctoring</div>
           </div>
         </div>
         <nav>
-          {NAV.map((n) => (
-            <NavLink key={n.to} to={n.to} className="nav-link" onClick={() => setOpen(false)}>
-              <span className="nav-icon" aria-hidden>{n.icon}</span>
-              {n.label}
-            </NavLink>
-          ))}
+          {NAV.map((n, i) =>
+            n.section ? (
+              <div key={i} className="nav-section">{n.section}</div>
+            ) : (
+              <NavLink key={n.to} to={n.to} className="nav-link" onClick={() => setOpen(false)}>
+                <n.icon size={18} />
+                {n.label}
+                {n.badge && <span className={`nav-badge ${n.live ? 'live' : ''}`}>{n.badge}</span>}
+              </NavLink>
+            )
+          )}
         </nav>
-        <div className="sidebar-foot muted small">Support: {org.supportEmail}</div>
+        <div className="org-card">
+          <img src={org.logoUrl} alt="" onError={(e) => (e.currentTarget.style.visibility = 'hidden')} />
+          <div>
+            <div className="org-name">{org.name}</div>
+            <div className="org-mail">{org.supportEmail}</div>
+          </div>
+        </div>
       </aside>
       <div className="scrim" onClick={() => setOpen(false)} />
+
       <div className="main">
         <header className="topbar">
-          <button className="icon-btn menu-btn" onClick={() => setOpen(!open)} aria-label="Toggle menu">☰</button>
-          <div className="topbar-title">Online Proctoring Admin</div>
-          <div className="avatar" title="Exam Administrator">EA</div>
+          <button className="icon-btn menu-btn" onClick={() => setOpen(!open)} aria-label="Toggle menu"><Menu size={20} /></button>
+          <GlobalSearch />
+          <div className="topbar-right">
+            <Clock />
+            <button
+              className="icon-btn"
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+              aria-label="Toggle theme"
+              title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+            >
+              {theme === 'dark' ? <Sun size={19} /> : <Moon size={19} />}
+            </button>
+            <Notifications logs={auditLogs} candidates={candidates} />
+            <div className="user-chip">
+              <div className="who"><b>Exam Admin</b><span>Administrator</span></div>
+              <Avatar name="Exam Admin" />
+            </div>
+          </div>
         </header>
-        <main className="content">
+        <main className="content" key={location.pathname}>
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<Dashboard />} />
@@ -68,6 +123,99 @@ export default function App() {
           </Routes>
         </main>
       </div>
+    </div>
+  );
+}
+
+function GlobalSearch() {
+  const navigate = useNavigate();
+  const [q, setQ] = useState('');
+  const ref = useRef(null);
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        ref.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  return (
+    <form
+      className="global-search"
+      onSubmit={(e) => {
+        e.preventDefault();
+        navigate(`/dashboard?q=${encodeURIComponent(q)}`);
+      }}
+    >
+      <Search size={16} />
+      <input ref={ref} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search candidates by name or ID…" />
+      <span className="kbd">Ctrl K</span>
+    </form>
+  );
+}
+
+function Clock() {
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 30000);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <span className="clock">
+      {now.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })} ·{' '}
+      {now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+    </span>
+  );
+}
+
+function Notifications({ logs, candidates }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const items = logs.filter((l) => l.type === 'Warning').slice(0, 8);
+  const flagged = candidates.filter((c) => c.cheatingFlags > 0).slice(0, 3);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e) => !ref.current?.contains(e.target) && setOpen(false);
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button className="icon-btn" onClick={() => setOpen(!open)} aria-label="Notifications">
+        <Bell size={19} />
+        {items.length > 0 && <span className="ping" />}
+      </button>
+      {open && (
+        <div className="dropdown">
+          <div className="dropdown-head">
+            Proctoring alerts <span className="badge badge-red plain">{items.length + flagged.length}</span>
+          </div>
+          <div className="dropdown-list">
+            {flagged.map((c) => (
+              <div key={c.id} className="notif">
+                <div className="notif-icon badge-red"><Flag size={15} /></div>
+                <div>
+                  <b>{c.name}</b> has {c.cheatingFlags} cheating flag{c.cheatingFlags > 1 ? 's' : ''}
+                  <div className="muted small">{c.department} · {c.id}</div>
+                </div>
+              </div>
+            ))}
+            {items.map((l) => (
+              <div key={l.id} className="notif">
+                <div className="notif-icon badge-amber"><AlertTriangle size={15} /></div>
+                <div>
+                  <b>{byId(candidates, l.candidateId)?.name}</b> — {l.event}
+                  <div className="muted small">{timeAgo(l.timestamp)}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

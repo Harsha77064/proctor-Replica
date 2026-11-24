@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '../context/StoreContext.jsx';
-import { PageHeader, Field, Toggle, Tabs } from '../components/UI.jsx';
+import { Building2, ClipboardCheck, ShieldCheck, Bell, RotateCcw, Save, CheckCircle2 } from 'lucide-react';
+import { PageHeader, Field, Toggle, Toast } from '../components/UI.jsx';
 
 const SECTIONS = [
-  { key: 'organization', label: 'Organization' },
-  { key: 'exam', label: 'Exam Details' },
-  { key: 'security', label: 'Security' },
-  { key: 'notifications', label: 'Notifications' },
+  { key: 'organization', label: 'Organization', desc: 'Company profile & branding', icon: Building2 },
+  { key: 'exam', label: 'Exam Details', desc: 'Defaults for new exams', icon: ClipboardCheck },
+  { key: 'security', label: 'Security', desc: 'Proctoring & integrity', icon: ShieldCheck },
+  { key: 'notifications', label: 'Notifications', desc: 'Emails & alerts', icon: Bell },
 ];
 
 export default function Settings() {
@@ -28,16 +29,24 @@ export default function Settings() {
 
   return (
     <>
-      <PageHeader title="Settings" subtitle="Organization profile, exam defaults, security and notifications">
+      <PageHeader title="Settings" subtitle="Organization profile, exam defaults, security and notifications" crumb="System">
         <button
           className="btn danger-ghost"
           onClick={() => confirm('Reset all demo data? Your changes will be lost.') && resetDemoData()}
         >
-          Reset Demo Data
+          <RotateCcw size={15} /> Reset Demo Data
         </button>
       </PageHeader>
 
-      <Tabs tabs={SECTIONS} active={section} onChange={setSection} />
+      <div className="settings-layout">
+      <nav className="card settings-nav" aria-label="Settings sections">
+        {SECTIONS.map((s) => (
+          <button key={s.key} className={section === s.key ? 'active' : ''} onClick={() => setSection(s.key)}>
+            <s.icon size={18} />
+            <span>{s.label}<small>{s.desc}</small></span>
+          </button>
+        ))}
+      </nav>
 
       <form className="card settings-card" onSubmit={save}>
         {section === 'organization' && (
@@ -106,11 +115,12 @@ export default function Settings() {
         )}
 
         <div className="modal-actions">
-          {saved && <span className="text-green small">Saved ✓</span>}
           <button type="button" className="btn ghost" onClick={() => setDraft(settings[section])}>Discard</button>
-          <button className="btn primary">Save Changes</button>
+          <button className="btn primary"><Save size={15} /> Save Changes</button>
         </div>
       </form>
+      </div>
+      {saved && <Toast><CheckCircle2 size={16} color="#22c55e" /> Settings saved</Toast>}
     </>
   );
 }

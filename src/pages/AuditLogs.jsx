@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useStore, byId, fmtDateTime, timeAgo } from '../context/StoreContext.jsx';
-import { PageHeader, Badge, Empty, Tabs, StatCard } from '../components/UI.jsx';
+import { ScrollText, Info, AlertTriangle, ShieldCheck, Download, Users, ListTree } from 'lucide-react';
+import { PageHeader, Badge, Empty, Tabs, StatCard, Person, SearchInput, CountPill } from '../components/UI.jsx';
 
 export default function AuditLogs() {
   const { auditLogs, candidates, exams } = useStore();
@@ -52,15 +53,15 @@ export default function AuditLogs() {
 
   return (
     <>
-      <PageHeader title="Audit Logs" subtitle="Every candidate and organization event, warning and validation">
-        <button className="btn" onClick={exportCsv}>⬇ Export CSV</button>
+      <PageHeader title="Audit Logs" subtitle="Every candidate and organization event, warning and validation" crumb="Monitoring">
+        <button className="btn" onClick={exportCsv}><Download size={15} /> Export CSV</button>
       </PageHeader>
 
-      <section className="stat-grid compact">
-        <StatCard label="Total Events" value={auditLogs.length} icon="🧾" tone="blue" />
-        <StatCard label="Normal Events" value={auditLogs.filter((l) => l.type === 'Normal').length} icon="ℹ" tone="blue" />
-        <StatCard label="Warnings" value={auditLogs.filter((l) => l.type === 'Warning').length} icon="⚠" tone="amber" />
-        <StatCard label="Validations" value={auditLogs.filter((l) => l.type === 'Validation').length} icon="✔" tone="purple" />
+      <section className="stat-grid">
+        <StatCard label="Total Events" value={auditLogs.length} icon={ScrollText} tone="purple" />
+        <StatCard label="Normal Events" value={auditLogs.filter((l) => l.type === 'Normal').length} icon={Info} tone="blue" />
+        <StatCard label="Warnings" value={auditLogs.filter((l) => l.type === 'Warning').length} icon={AlertTriangle} tone="amber" />
+        <StatCard label="Validations" value={auditLogs.filter((l) => l.type === 'Validation').length} icon={ShieldCheck} tone="cyan" />
       </section>
 
       <div className="row-between wrap">
@@ -68,15 +69,15 @@ export default function AuditLogs() {
           active={view}
           onChange={setView}
           tabs={[
-            { key: 'summary', label: 'Candidate Summary' },
-            { key: 'events', label: 'All Events', count: events.length },
+            { key: 'summary', label: 'Candidate Summary', icon: Users },
+            { key: 'events', label: 'All Events', icon: ListTree, count: events.length },
           ]}
         />
         <div className="filters">
-          <input className="input" placeholder="Search candidate or event…" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <SearchInput value={search} onChange={setSearch} placeholder="Search candidate or event…" />
           {view === 'events' && (
             <select className="input" value={type} onChange={(e) => setType(e.target.value)}>
-              <option>All</option><option>Normal</option><option>Warning</option><option>Validation</option>
+              <option value="All">All types</option><option>Normal</option><option>Warning</option><option>Validation</option>
             </select>
           )}
         </div>
@@ -99,10 +100,7 @@ export default function AuditLogs() {
               <tbody>
                 {summaryRows.map((s) => (
                   <tr key={s.candidate.id}>
-                    <td>
-                      <div className="strong">{s.candidate.name}</div>
-                      <div className="muted small mono">{s.candidate.id}</div>
-                    </td>
+                    <td><Person name={s.candidate.name} sub={s.candidate.id} online={s.candidate.online} /></td>
                     <td>
                       <div>{timeAgo(s.lastActive)}</div>
                       <div className="muted small">{fmtDateTime(s.lastActive)}</div>
@@ -116,9 +114,9 @@ export default function AuditLogs() {
                         <span className="muted">—</span>
                       )}
                     </td>
-                    <td>{s.normal}</td>
-                    <td>{s.warning ? <Badge tone="amber">{s.warning}</Badge> : 0}</td>
-                    <td>{s.validation ? <Badge tone="purple">{s.validation}</Badge> : 0}</td>
+                    <td><CountPill value={s.normal} tone="blue" /></td>
+                    <td><CountPill value={s.warning} tone="amber" /></td>
+                    <td><CountPill value={s.validation} tone="purple" /></td>
                   </tr>
                 ))}
               </tbody>
@@ -138,11 +136,8 @@ export default function AuditLogs() {
               <tbody>
                 {events.map((l) => (
                   <tr key={l.id}>
-                    <td className="small">{fmtDateTime(l.timestamp)}</td>
-                    <td>
-                      <div className="strong">{byId(candidates, l.candidateId)?.name || '—'}</div>
-                      <div className="muted small mono">{l.candidateId}</div>
-                    </td>
+                    <td className="small nowrap muted">{fmtDateTime(l.timestamp)}</td>
+                    <td><Person name={byId(candidates, l.candidateId)?.name || l.candidateId} sub={l.candidateId} /></td>
                     <td><Badge>{l.type}</Badge></td>
                     <td>{l.event}</td>
                     <td className="small">{byId(exams, l.examId)?.title || <span className="muted">—</span>}</td>
@@ -152,8 +147,8 @@ export default function AuditLogs() {
               </tbody>
             </table>
           )}
-          {view === 'summary' && !summaryRows.length && <Empty>No candidates found.</Empty>}
-          {view === 'events' && !events.length && <Empty>No events match your filters.</Empty>}
+          {view === 'summary' && !summaryRows.length && <Empty icon={Users}>No candidates found.</Empty>}
+          {view === 'events' && !events.length && <Empty icon={ScrollText}>No events match your filters.</Empty>}
         </div>
       </section>
     </>
