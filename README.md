@@ -99,3 +99,11 @@ npm test
 
 Starts a throwaway server with an empty database and checks sign-in, roles, invitations,
 the candidate exam flow, server-side scoring, recordings and security headers.
+
+The test server uses a random port from 3900–3989. To choose one:
+
+```bash
+npm test -- --port 4500
+```
+
+or set `TEST_PORT=4500`. If the port is busy the test says so and suggests another.
