@@ -1,249 +1,118 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import {
-  seedCandidates,
-  seedQuestionBanks,
-  seedExams,
-  seedResults,
-  seedFeedback,
-  seedAuditLogs,
-  seedSettings,
-} from '../data/mockData.js';
+// Organization data, loaded from the server. Actions call the API and then
+// reload what changed. Other staff members' changes arrive through the live
+// connection (see LiveContext), which calls `refresh`.
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { api } from '../api.js';
 
-const STORAGE_KEY = 'oversee-state-v1';
+const COLLECTIONS = ['candidates', 'questionBanks', 'exams', 'results', 'feedback', 'auditLogs', 'settings'];
 
-const initialState = () => ({
-  candidates: structuredClone(seedCandidates),
-  questionBanks: structuredClone(seedQuestionBanks),
-  exams: structuredClone(seedExams),
-  results: structuredClone(seedResults),
-  feedback: structuredClone(seedFeedback),
-  auditLogs: structuredClone(seedAuditLogs),
-  settings: structuredClone(seedSettings),
-});
-
-function loadState() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return { ...initialState(), ...JSON.parse(raw) };
-  } catch {
-    /* ignore corrupt / unavailable storage */
-  }
-  return initialState();
-}
+const EMPTY = {
+  candidates: [],
+  questionBanks: [],
+  exams: [],
+  results: [],
+  feedback: [],
+  auditLogs: [],
+  settings: {
+    organization: { name: '', companyUrl: '', logoUrl: '', supportEmail: '', timezone: 'Asia/Kolkata' },
+    exam: { defaultDuration: 60, passMark: 60, maxAttempts: 1, shuffleQuestions: true, shuffleOptions: true, showResultsToCandidate: false, negativeMarking: false },
+    security: { webcamRequired: true, microphoneRequired: true, screenRecording: true, browserLockdown: true, idVerification: true, maxWarningsBeforeFlag: 3, autoSubmitOnFlag: false },
+    notifications: { emailOnExamScheduled: true, emailOnResultPublished: true, alertOnCheatingFlag: true, dailySummary: false, reminderHoursBefore: 24 },
+  },
+};
 
 const StoreContext = createContext(null);
 
-let counter = Date.now() % 100000;
-const nextId = (prefix) => `${prefix}-${++counter}`;
-
 export function StoreProvider({ children }) {
-  const [state, setState] = useState(loadState);
+  const [state, setState] = useState(EMPTY);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState(null);
+  const pending = useRef(new Set());
+  const timer = useRef(null);
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
-  useEffect(() => {
+  const refresh = useCallback(async (collections) => {
+    const only = (collections || COLLECTIONS).filter((c) => COLLECTIONS.includes(c));
+    if (!only.length) return;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch {
-      /* storage full or blocked */
+      const data = await api(`/data?only=${only.join(',')}`);
+      setState((s) => ({ ...s, ...data }));
+      setLoaded(true);
+    } catch (err) {
+      if (err.status !== 401) setError(err.message);
     }
-  }, [state]);
-
-  const actions = useMemo(() => {
-    const log = (s, candidateId, type, event, examId = null) => ({
-      ...s,
-      auditLogs: [
-        { id: nextId('LOG'), candidateId, type, event, examId, timestamp: new Date().toISOString(), ip: 'admin-console' },
-        ...s.auditLogs,
-      ],
-    });
-
-    return {
-      // Candidates
-      addCandidate: (data) =>
-        setState((s) => {
-          const c = {
-            id: nextId('CND'),
-            status: 'Active',
-            online: false,
-            warnings: 0,
-            cheatingFlags: 0,
-            assignedExams: [],
-            lastActive: new Date().toISOString(),
-            ...data,
-          };
-          return log({ ...s, candidates: [c, ...s.candidates] }, c.id, 'Normal', 'Candidate registered by organization');
-        }),
-      toggleCandidateStatus: (id) =>
-        setState((s) => {
-          const c = s.candidates.find((x) => x.id === id);
-          const status = c.status === 'Active' ? 'Inactive' : 'Active';
-          return log(
-            {
-              ...s,
-              candidates: s.candidates.map((x) =>
-                x.id === id ? { ...x, status, online: status === 'Active' ? x.online : false } : x
-              ),
-            },
-            id,
-            'Normal',
-            `Status changed to ${status} by organization`
-          );
-        }),
-      assignExam: (candidateId, examId) =>
-        setState((s) => {
-          const c = s.candidates.find((x) => x.id === candidateId);
-          if (!c || c.assignedExams.includes(examId)) return s;
-          const exam = s.exams.find((e) => e.id === examId);
-          return log(
-            {
-              ...s,
-              candidates: s.candidates.map((x) =>
-                x.id === candidateId ? { ...x, assignedExams: [...x.assignedExams, examId] } : x
-              ),
-              exams: s.exams.map((e) =>
-                e.id === examId ? { ...e, candidates: [...e.candidates, candidateId] } : e
-              ),
-            },
-            candidateId,
-            'Normal',
-            `Assigned exam "${exam?.title}"`,
-            examId
-          );
-        }),
-
-      // Question banks
-      addQuestionBank: (bank) =>
-        setState((s) => ({
-          ...s,
-          questionBanks: [
-            { id: nextId('QB'), createdAt: new Date().toISOString(), questions: [], ...bank },
-            ...s.questionBanks,
-          ],
-        })),
-      deleteQuestionBank: (id) =>
-        setState((s) => ({ ...s, questionBanks: s.questionBanks.filter((b) => b.id !== id) })),
-      addQuestion: (bankId, question) =>
-        setState((s) => ({
-          ...s,
-          questionBanks: s.questionBanks.map((b) =>
-            b.id === bankId ? { ...b, questions: [...b.questions, { id: nextId('Q'), ...question }] } : b
-          ),
-        })),
-      deleteQuestion: (bankId, qid) =>
-        setState((s) => ({
-          ...s,
-          questionBanks: s.questionBanks.map((b) =>
-            b.id === bankId ? { ...b, questions: b.questions.filter((x) => x.id !== qid) } : b
-          ),
-        })),
-
-      // Exams
-      addExam: (exam) =>
-        setState((s) => ({
-          ...s,
-          exams: [{ id: nextId('EX'), status: 'Scheduled', candidates: [], ...exam }, ...s.exams],
-        })),
-      setExamStatus: (id, status) =>
-        setState((s) => ({ ...s, exams: s.exams.map((e) => (e.id === id ? { ...e, status } : e)) })),
-      deleteExam: (id) =>
-        setState((s) => ({
-          ...s,
-          exams: s.exams.filter((e) => e.id !== id),
-          candidates: s.candidates.map((c) => ({ ...c, assignedExams: c.assignedExams.filter((x) => x !== id) })),
-        })),
-
-      // Feedback
-      sendFeedback: (fb) =>
-        setState((s) =>
-          log(
-            {
-              ...s,
-              feedback: [{ id: nextId('FB'), sentAt: new Date().toISOString(), ...fb }, ...s.feedback],
-            },
-            fb.candidateId,
-            'Normal',
-            'Feedback sent by organization',
-            fb.examId
-          )
-        ),
-      deleteFeedback: (id) => setState((s) => ({ ...s, feedback: s.feedback.filter((f) => f.id !== id) })),
-
-      // Audit
-      addAuditEvent: (candidateId, type, event, examId) => setState((s) => log(s, candidateId, type, event, examId)),
-
-      // Live proctoring
-      recordProctorEvent: (candidateId, type, event, examId) =>
-        setState((s) => {
-          let next = log(s, candidateId, type, event, examId);
-          if (type !== 'Warning') return next;
-          const limit = Math.max(1, s.settings.security.maxWarningsBeforeFlag || 3);
-          let autoFlag = false;
-          next = {
-            ...next,
-            candidates: next.candidates.map((c) => {
-              if (c.id !== candidateId) return c;
-              const warnings = c.warnings + 1;
-              autoFlag = warnings % limit === 0;
-              return { ...c, warnings, cheatingFlags: c.cheatingFlags + (autoFlag ? 1 : 0), lastActive: new Date().toISOString() };
-            }),
-          };
-          return autoFlag ? log(next, candidateId, 'Warning', `Auto-flagged: reached ${limit} warnings`, examId) : next;
-        }),
-      flagCandidate: (candidateId, reason, examId) =>
-        setState((s) =>
-          log(
-            {
-              ...s,
-              candidates: s.candidates.map((c) => (c.id === candidateId ? { ...c, cheatingFlags: c.cheatingFlags + 1 } : c)),
-            },
-            candidateId,
-            'Warning',
-            `Flagged by proctor${reason ? `: ${reason}` : ''}`,
-            examId
-          )
-        ),
-      setCandidateOnline: (candidateId, online) =>
-        setState((s) => ({
-          ...s,
-          candidates: s.candidates.map((c) =>
-            c.id === candidateId ? { ...c, online, lastActive: new Date().toISOString() } : c
-          ),
-        })),
-      addResult: ({ candidateId, examId, correct, total, timeTaken }) =>
-        setState((s) => {
-          const exam = s.exams.find((e) => e.id === examId);
-          const score = total ? Math.round((correct / total) * 100) : 0;
-          const result = {
-            id: nextId('RS'),
-            candidateId,
-            examId,
-            score,
-            correct,
-            total,
-            timeTaken,
-            submittedAt: new Date().toISOString(),
-            result: score >= (exam?.passMark ?? 60) ? 'Pass' : 'Fail',
-          };
-          return log(
-            {
-              ...s,
-              results: [result, ...s.results.filter((r) => !(r.candidateId === candidateId && r.examId === examId))],
-            },
-            candidateId,
-            'Normal',
-            `Submitted exam — scored ${score}%`,
-            examId
-          );
-        }),
-
-      // Settings
-      updateSettings: (section, values) =>
-        setState((s) => ({ ...s, settings: { ...s.settings, [section]: { ...s.settings[section], ...values } } })),
-
-      resetDemoData: () => setState(initialState()),
-    };
   }, []);
 
-  const value = useMemo(() => ({ ...state, ...actions }), [state, actions]);
+  // Coalesce bursts of change notifications into one request.
+  const refreshSoon = useCallback(
+    (collections) => {
+      collections.forEach((c) => pending.current.add(c));
+      clearTimeout(timer.current);
+      timer.current = setTimeout(() => {
+        const list = [...pending.current];
+        pending.current.clear();
+        refresh(list);
+      }, 250);
+    },
+    [refresh]
+  );
+
+  useEffect(() => {
+    refresh();
+    // Safety net in case a live update is missed (e.g. while offline).
+    const t = setInterval(() => refresh(['candidates', 'exams', 'results', 'auditLogs']), 60000);
+    return () => clearInterval(t);
+  }, [refresh]);
+
+  const actions = useMemo(() => {
+    // Runs an API call, reloads the given collections, and reports errors to the user.
+    const run = (collections, fn) => async (...args) => {
+      try {
+        const out = await fn(...args);
+        await refresh(collections);
+        return out;
+      } catch (err) {
+        setError(err.message);
+        throw err;
+      }
+    };
+    return {
+      // Candidates
+      addCandidate: run(['candidates', 'auditLogs'], (data) => api('/candidates', { method: 'POST', body: data })),
+      toggleCandidateStatus: run(['candidates', 'auditLogs'], (id) => {
+        const c = stateRef.current.candidates.find((x) => x.id === id);
+        return api(`/candidates/${id}`, { method: 'PATCH', body: { status: c?.status === 'Active' ? 'Inactive' : 'Active' } });
+      }),
+      assignExam: run(['candidates', 'exams', 'auditLogs'], (candidateId, examId) => api(`/candidates/${candidateId}/assign`, { method: 'POST', body: { examId } })),
+      flagCandidate: run(['candidates', 'auditLogs'], (candidateId, reason, examId) => api(`/candidates/${candidateId}/flag`, { method: 'POST', body: { reason, examId } })),
+
+      // Question banks
+      addQuestionBank: run(['questionBanks'], (bank) => api('/banks', { method: 'POST', body: bank })),
+      deleteQuestionBank: run(['questionBanks', 'exams'], (id) => api(`/banks/${id}`, { method: 'DELETE' })),
+      addQuestion: run(['questionBanks'], (bankId, q) => api(`/banks/${bankId}/questions`, { method: 'POST', body: q })),
+      deleteQuestion: run(['questionBanks'], (bankId, qid) => api(`/banks/${bankId}/questions/${qid}`, { method: 'DELETE' })),
+
+      // Exams
+      addExam: run(['exams'], (exam) => api('/exams', { method: 'POST', body: exam })),
+      setExamStatus: run(['exams', 'results', 'auditLogs'], (id, status) => api(`/exams/${id}`, { method: 'PATCH', body: { status } })),
+      deleteExam: run(['exams', 'candidates', 'results'], (id) => api(`/exams/${id}`, { method: 'DELETE' })),
+
+      // Feedback
+      sendFeedback: run(['feedback', 'auditLogs'], (fb) => api('/feedback', { method: 'POST', body: fb })),
+      deleteFeedback: run(['feedback'], (id) => api(`/feedback/${id}`, { method: 'DELETE' })),
+
+      // Settings
+      updateSettings: run(['settings', 'auditLogs'], (section, values) => api(`/settings/${section}`, { method: 'PUT', body: values })),
+
+      refresh,
+      refreshSoon,
+      clearError: () => setError(null),
+      reportError: setError,
+    };
+  }, [refresh, refreshSoon]);
+
+  const value = useMemo(() => ({ ...state, loaded, error, ...actions }), [state, loaded, error, actions]);
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }
 

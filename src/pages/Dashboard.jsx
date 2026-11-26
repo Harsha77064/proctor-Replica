@@ -8,6 +8,7 @@ import {
   UserPlus, CalendarPlus, Activity, Crown, CalendarClock, ShieldCheck, Info, Power, Send,
 } from 'lucide-react';
 import { useStore, timeAgo, byId, fmtDateTime } from '../context/StoreContext.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
 import { DEPARTMENTS } from '../data/mockData.js';
 import {
   PageHeader, StatCard, Badge, Modal, Field, Empty, Person, Avatar, SearchInput, CountPill,
@@ -22,6 +23,7 @@ const tooltipStyle = { background: 'var(--surface)', border: '1px solid var(--bo
 
 export default function Dashboard() {
   const { candidates, exams, results, auditLogs, addCandidate, toggleCandidateStatus, assignExam } = useStore();
+  const { isAdmin, user } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const [search, setSearch] = useState(params.get('q') || '');
@@ -103,15 +105,15 @@ export default function Dashboard() {
     <>
       <section className="hero">
         <div>
-          <h1>Welcome back, Admin 👋</h1>
+          <h1>Welcome back, {user.name.split(' ')[0]} 👋</h1>
           <p>
             {stats.live} exam{stats.live === 1 ? ' is' : 's are'} live right now with {stats.online} candidates online.
             {stats.flags > 0 && ` ${stats.flags} cheating flags need your review.`}
           </p>
           <div className="hero-actions">
             <button className="btn" onClick={() => navigate('/live-monitoring')}><Radio size={16} /> Monitor Live Exams</button>
-            <button className="btn glass" onClick={() => setShowAdd(true)}><UserPlus size={16} /> Add Candidate</button>
-            <button className="btn glass" onClick={() => navigate('/exams?new=1')}><CalendarPlus size={16} /> Schedule Exam</button>
+            {isAdmin && <button className="btn glass" onClick={() => setShowAdd(true)}><UserPlus size={16} /> Add Candidate</button>}
+            {isAdmin && <button className="btn glass" onClick={() => navigate('/exams?new=1')}><CalendarPlus size={16} /> Schedule Exam</button>}
           </div>
         </div>
         <div className="hero-stats">
@@ -309,7 +311,7 @@ export default function Dashboard() {
                   </td>
                   <td className="small nowrap muted">{timeAgo(c.lastActive)}</td>
                   <td>
-                    <div className="row-actions nowrap" style={{ justifyContent: 'flex-end' }}>
+                    {isAdmin && <div className="row-actions nowrap" style={{ justifyContent: 'flex-end' }}>
                       <button className="btn small primary" onClick={() => setAssignFor(c)}><Send size={13} /> Assign Exam</button>
                       <button
                         className="icon-btn"
@@ -320,7 +322,7 @@ export default function Dashboard() {
                       >
                         <Power size={16} />
                       </button>
-                    </div>
+                    </div>}
                   </td>
                 </tr>
               ))}
@@ -345,8 +347,7 @@ export default function Dashboard() {
         <AddCandidateModal
           onClose={() => setShowAdd(false)}
           onSave={(data) => {
-            addCandidate(data);
-            setShowAdd(false);
+            addCandidate(data).then(() => setShowAdd(false)).catch(() => {});
           }}
         />
       )}

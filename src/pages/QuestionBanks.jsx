@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Plus, Trash2, Eye, Library, FileQuestion, Flame, Layers } from 'lucide-react';
 import { useStore, fmtDate } from '../context/StoreContext.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
 import { PageHeader, Badge, Modal, Field, Empty, SearchInput, StatCard } from '../components/UI.jsx';
 
 const TOPIC_STYLE = {
@@ -17,6 +18,7 @@ const DIFF_COLORS = { Easy: '#10b981', Medium: '#f59e0b', Hard: '#ef4444' };
 
 export default function QuestionBanks() {
   const { questionBanks, addQuestionBank, deleteQuestionBank, addQuestion, deleteQuestion } = useStore();
+  const { isAdmin } = useAuth();
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [openId, setOpenId] = useState(null);
@@ -32,7 +34,7 @@ export default function QuestionBanks() {
     <>
       <PageHeader title="Question Bank" subtitle="Build question banks and manage existing ones" crumb="Assessment">
         <SearchInput value={search} onChange={setSearch} placeholder="Search banks…" />
-        <button className="btn primary" onClick={() => setShowCreate(true)}><Plus size={16} /> New Question Bank</button>
+        {isAdmin && <button className="btn primary" onClick={() => setShowCreate(true)}><Plus size={16} /> New Question Bank</button>}
       </PageHeader>
 
       <section className="stat-grid">
@@ -71,13 +73,15 @@ export default function QuestionBanks() {
                 {counts.map(([d, c]) => <span key={d}><i style={{ background: DIFF_COLORS[d] }} />{d} {c}</span>)}
               </div>
               <div className="row-actions">
-                <button className="btn small" onClick={() => setOpenId(b.id)}><Eye size={14} /> View & Edit</button>
-                <button
-                  className="btn small danger-ghost"
-                  onClick={() => confirm(`Delete "${b.name}"?`) && deleteQuestionBank(b.id)}
-                >
-                  <Trash2 size={14} /> Delete
-                </button>
+                <button className="btn small" onClick={() => setOpenId(b.id)}><Eye size={14} /> {isAdmin ? 'View & Edit' : 'View'}</button>
+                {isAdmin && (
+                  <button
+                    className="btn small danger-ghost"
+                    onClick={() => confirm(`Delete "${b.name}"? Exams using it will have no questions.`) && deleteQuestionBank(b.id)}
+                  >
+                    <Trash2 size={14} /> Delete
+                  </button>
+                )}
               </div>
             </article>
           );
@@ -89,14 +93,14 @@ export default function QuestionBanks() {
         <CreateBankModal
           onClose={() => setShowCreate(false)}
           onSave={(data) => {
-            addQuestionBank(data);
-            setShowCreate(false);
+            addQuestionBank(data).then(() => setShowCreate(false)).catch(() => {});
           }}
         />
       )}
       {open && (
         <BankDetailModal
           bank={open}
+          canEdit={isAdmin}
           onClose={() => setOpenId(null)}
           onAddQuestion={(qq) => addQuestion(open.id, qq)}
           onDeleteQuestion={(qid) => deleteQuestion(open.id, qid)}
@@ -132,16 +136,19 @@ function CreateBankModal({ onClose, onSave }) {
 
 const blankQuestion = () => ({ text: '', options: ['', '', '', ''], answer: 0, difficulty: 'Medium' });
 
-function BankDetailModal({ bank, onClose, onAddQuestion, onDeleteQuestion }) {
+function BankDetailModal({ bank, canEdit, onClose, onAddQuestion, onDeleteQuestion }) {
   const [draft, setDraft] = useState(blankQuestion);
   const [adding, setAdding] = useState(false);
   const ts = topicStyle(bank.topic);
 
   const submit = (e) => {
     e.preventDefault();
-    onAddQuestion(draft);
-    setDraft(blankQuestion());
-    setAdding(false);
+    onAddQuestion(draft)
+      .then(() => {
+        setDraft(blankQuestion());
+        setAdding(false);
+      })
+      .catch(() => {});
   };
 
   return (
@@ -151,7 +158,7 @@ function BankDetailModal({ bank, onClose, onAddQuestion, onDeleteQuestion }) {
           <div className="bank-logo" style={{ background: ts.grad, width: 36, height: 36 }}>{ts.abbr}</div>
           <span className="muted">{bank.questions.length} questions · {bank.topic}</span>
         </div>
-        {!adding && <button className="btn small primary" onClick={() => setAdding(true)}><Plus size={14} /> Add Question</button>}
+        {canEdit && !adding && <button className="btn small primary" onClick={() => setAdding(true)}><Plus size={14} /> Add Question</button>}
       </div>
 
       {adding && (
@@ -203,9 +210,11 @@ function BankDetailModal({ bank, onClose, onAddQuestion, onDeleteQuestion }) {
               <div className="strong q-text">{qq.text}</div>
               <div className="row-actions nowrap">
                 <Badge>{qq.difficulty}</Badge>
-                <button className="icon-btn" title="Delete question" aria-label="Delete question" onClick={() => onDeleteQuestion(qq.id)}>
-                  <Trash2 size={15} />
-                </button>
+                {canEdit && (
+                  <button className="icon-btn" title="Delete question" aria-label="Delete question" onClick={() => onDeleteQuestion(qq.id)}>
+                    <Trash2 size={15} />
+                  </button>
+                )}
               </div>
             </div>
             <ul className="opts">

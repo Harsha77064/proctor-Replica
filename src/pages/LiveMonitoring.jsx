@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Video, VideoOff, Circle, Square, Camera, Volume2, VolumeX, Maximize2, MessageSquare, AlertTriangle, Flag, Ban,
-  ExternalLink, Radio, PlayCircle, Download, Trash2, Wifi, WifiOff, Clock, ListChecks, Info, ShieldCheck,
+  Radio, PlayCircle, Download, Trash2, Wifi, WifiOff, Clock, ListChecks, Info, ShieldCheck,
   X, Send, Film, Hourglass,
 } from 'lucide-react';
 import { useStore, byId, timeAgo, fmtDateTime } from '../context/StoreContext.jsx';
 import { useLive } from '../live/LiveContext.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
 import { PageHeader, StatCard, Modal, Empty, Badge, Avatar, Field } from '../components/UI.jsx';
 
 const PHASE_LABEL = {
@@ -52,7 +54,8 @@ const fmtDuration = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '
 const fmtSize = (b) => (b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1e3))} KB`);
 
 export default function LiveMonitoring() {
-  const { exams, candidates } = useStore();
+  const { exams, candidates, results } = useStore();
+  const { isAdmin } = useAuth();
   const live = useLive();
   const [examFilter, setExamFilter] = useState('All');
   const [focusId, setFocusId] = useState(null);
@@ -74,7 +77,6 @@ export default function LiveMonitoring() {
   );
 
   const focus = live.peers.find((p) => p.id === focusId);
-  const portalUrl = `${window.location.origin}/exam`;
 
   return (
     <>
@@ -84,7 +86,7 @@ export default function LiveMonitoring() {
         subtitle="Watch candidates' cameras in real time, record sessions and act on suspicious behaviour"
       >
         <ServerStatus status={live.status} />
-        <a className="btn" href="/exam" target="_blank" rel="noreferrer"><ExternalLink size={15} /> Open Candidate Portal</a>
+        {isAdmin && <Link className="btn" to="/exams"><Send size={15} /> Invite candidates</Link>}
         {active.some((p) => p.stream) && (
           live.recordingIds.length ? (
             <button className="btn danger-ghost" onClick={() => live.recordingIds.forEach(live.stopRecording)}>
@@ -139,12 +141,14 @@ export default function LiveMonitoring() {
               <Empty icon={VideoOff}>
                 <div className="strong" style={{ color: 'var(--text)' }}>No candidates are connected yet</div>
                 <div style={{ maxWidth: 520 }}>
-                  Candidates join from the candidate portal at <span className="mono">{portalUrl}</span>. Their camera appears
-                  here as soon as they allow camera access.
+                  Candidates join from the personal link in their exam invitation. Their camera appears here as soon as
+                  they sign in and allow camera access.
                 </div>
-                <a className="btn primary" href="/exam" target="_blank" rel="noreferrer" style={{ marginTop: 8 }}>
-                  <ExternalLink size={15} /> Open Candidate Portal
-                </a>
+                {isAdmin && (
+                  <Link className="btn primary" to="/exams" style={{ marginTop: 8 }}>
+                    <Send size={15} /> Send exam invitations
+                  </Link>
+                )}
               </Empty>
             </div>
           )}
@@ -171,7 +175,14 @@ export default function LiveMonitoring() {
             </section>
           )}
 
-          <Recordings recordings={live.recordings} onDelete={live.deleteRecording} />
+          <Recordings
+            recordings={live.recordings}
+            uploads={live.uploads}
+            canDelete={isAdmin}
+            onDelete={live.deleteRecording}
+            onRetry={live.retryUpload}
+            onDiscard={live.discardUpload}
+          />
         </div>
 
         <aside className="card monitor-feed">
@@ -203,6 +214,7 @@ export default function LiveMonitoring() {
       {focus && (
         <FocusModal
           peer={focus}
+          result={results.find((r) => r.candidateId === focus.info.candidateId && r.examId === focus.info.examId)}
           exam={byId(exams, focus.info.examId)}
           recording={live.recordingIds.includes(focus.id)}
           events={live.events.filter((e) => e.peerId === focus.id)}
@@ -239,7 +251,7 @@ function ServerStatus({ status }) {
   };
   const s = map[status] || map.connecting;
   return (
-    <span className={`server-status ${s.cls}`} title={status === 'offline' ? 'Run the app with npm run dev so the proctoring server is available' : ''}>
+    <span className={`server-status ${s.cls}`} title={status === 'offline' ? 'The proctoring server cannot be reached. Reconnecting automatically.' : ''}>
       <s.icon size={14} /> {s.text}
     </span>
   );
@@ -309,7 +321,7 @@ function LiveTile({ peer, recording, audible, onAudio, onFocus, onRecord, onDial
   );
 }
 
-function FocusModal({ peer, exam, recording, events, onClose, onRecord, onDialog }) {
+function FocusModal({ peer, result, exam, recording, events, onClose, onRecord, onDialog }) {
   const videoRef = useRef(null);
   const [audible, setAudible] = useState(true);
   const prog = peer.progress;
@@ -355,7 +367,7 @@ function FocusModal({ peer, exam, recording, events, onClose, onRecord, onDialog
             {prog && <><dt>Progress</dt><dd>{prog.answered}/{prog.total} answered · Q{prog.current}</dd></>}
             {prog && <><dt>Time left</dt><dd>{fmtDuration(prog.secondsLeft)}</dd></>}
             <dt>Warnings</dt><dd>{peer.warnings}</dd>
-            {peer.submitted && <><dt>Score</dt><dd>{peer.submitted.correct}/{peer.submitted.total}</dd></>}
+            {peer.phase === 'submitted' && result && <><dt>Score</dt><dd>{result.score}% · {result.result}</dd></>}
           </dl>
           <h3 style={{ marginTop: 14 }}>Session events</h3>
           <div className="feed" style={{ maxHeight: 220, overflowY: 'auto' }}>
@@ -413,28 +425,50 @@ function ActionDialog({ peer, mode, onClose, onSubmit }) {
   );
 }
 
-function Recordings({ recordings, onDelete }) {
-  if (!recordings.length) return null;
+function Recordings({ recordings, uploads, canDelete, onDelete, onRetry, onDiscard }) {
+  if (!recordings.length && !uploads.length) return null;
   return (
     <section className="card">
       <div className="card-head">
         <div>
           <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Film size={17} /> Session Recordings</h2>
-          <div className="card-sub">Saved in this browser until you close the tab. Download the ones you need to keep.</div>
+          <div className="card-sub">Saved on the server and kept with each candidate's audit trail.</div>
         </div>
       </div>
       <div className="rec-grid">
+        {uploads.map((u) => (
+          <div key={u.id} className="rec-item">
+            <video src={u.url} controls preload="metadata" />
+            <div className="row-between" style={{ marginTop: 8 }}>
+              <div style={{ minWidth: 0 }}>
+                <div className="strong small ellipsis">{u.name}</div>
+                <div className={`small ${u.state === 'failed' ? 'text-red' : 'muted'}`}>
+                  {u.state === 'failed' ? `Not saved: ${u.error}` : `Uploading ${fmtSize(u.size)}…`}
+                </div>
+              </div>
+              {u.state === 'failed' && (
+                <div className="row-actions nowrap">
+                  <button className="btn small" onClick={() => onRetry(u)}>Retry</button>
+                  <a className="icon-btn" href={u.url} download={`${u.candidateId}.webm`} title="Save a copy to this computer" aria-label="Download recording"><Download size={16} /></a>
+                  <button className="icon-btn" onClick={() => onDiscard(u.id)} title="Discard" aria-label="Discard recording"><Trash2 size={16} /></button>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
         {recordings.map((r) => (
           <div key={r.id} className="rec-item">
             <video src={r.url} controls preload="metadata" />
             <div className="row-between" style={{ marginTop: 8 }}>
               <div style={{ minWidth: 0 }}>
-                <div className="strong small ellipsis">{r.name}</div>
-                <div className="muted small">{fmtDuration(r.duration)} · {fmtSize(r.size)} · {timeAgo(r.at)}</div>
+                <div className="strong small ellipsis">{r.name}{r.examTitle ? ` · ${r.examTitle}` : ''}</div>
+                <div className="muted small">{fmtDuration(r.duration)} · {fmtSize(r.size)} · {timeAgo(r.at)} · by {r.recordedBy}</div>
               </div>
               <div className="row-actions nowrap">
-                <a className="icon-btn" href={r.url} download={r.fileName} title="Download" aria-label="Download recording"><Download size={16} /></a>
-                <button className="icon-btn" onClick={() => onDelete(r.id)} title="Delete" aria-label="Delete recording"><Trash2 size={16} /></button>
+                <a className="icon-btn" href={`${r.url}?download=1`} title="Download" aria-label="Download recording"><Download size={16} /></a>
+                {canDelete && (
+                  <button className="icon-btn" onClick={() => confirm('Delete this recording permanently?') && onDelete(r.id)} title="Delete" aria-label="Delete recording"><Trash2 size={16} /></button>
+                )}
               </div>
             </div>
           </div>
@@ -443,4 +477,3 @@ function Recordings({ recordings, onDelete }) {
     </section>
   );
 }
-

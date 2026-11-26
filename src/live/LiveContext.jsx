@@ -1,9 +1,11 @@
-// Admin-side live proctoring: connects to the signaling server as a proctor,
+// Admin-side live proctoring: connects to the signaling server as staff,
 // opens a WebRTC connection to every candidate who joins, receives their
-// camera + microphone, records sessions and relays proctor commands.
+// camera + microphone, records sessions (uploaded to the server) and relays
+// proctor commands. The server logs every event and enforces every action.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../context/StoreContext.jsx';
-import { ICE_CONFIG, SignalingClient, makeQueue, pickRecorderMime } from './signaling.js';
+import { api } from '../api.js';
+import { SignalingClient, getIceConfig, makeQueue, pickRecorderMime } from './signaling.js';
 
 const LiveContext = createContext(null);
 const MAX_EVENTS = 200;
@@ -16,14 +18,23 @@ export function LiveProvider({ children }) {
   const [status, setStatus] = useState('connecting');
   const [peers, setPeers] = useState({}); // id -> peer view model
   const [events, setEvents] = useState([]); // session alert feed
-  const [recordings, setRecordings] = useState([]);
+  const [recordings, setRecordings] = useState([]); // saved on the server
+  const [uploads, setUploads] = useState([]); // in flight or failed
   const [recordingIds, setRecordingIds] = useState([]);
 
   const sigRef = useRef(null);
   const pcs = useRef(new Map()); // id -> { pc, queue }
-  const recorders = useRef(new Map()); // id -> { recorder, chunks, startedAt, name }
+  const recorders = useRef(new Map()); // id -> { recorder, chunks, startedAt, ... }
   const peersRef = useRef(peers);
   peersRef.current = peers;
+
+  const loadRecordings = useCallback(async () => {
+    try {
+      setRecordings((await api('/recordings')).recordings);
+    } catch {
+      /* shown as empty; errors surface on the next action */
+    }
+  }, []);
 
   const patchPeer = useCallback((id, patch) => {
     setPeers((p) => (p[id] ? { ...p, [id]: { ...p[id], ...(typeof patch === 'function' ? patch(p[id]) : patch) } } : p));
@@ -41,19 +52,20 @@ export function LiveProvider({ children }) {
   const closePeer = useCallback(
     (id) => {
       stopRecording(id);
-      const entry = pcs.current.get(id);
-      entry?.pc.close();
+      pcs.current.get(id)?.pc?.close();
       pcs.current.delete(id);
     },
     [stopRecording]
   );
 
   const call = useCallback(
-    (id) => {
+    async (id) => {
       const sig = sigRef.current;
       if (!sig || pcs.current.has(id)) return;
-      const pc = new RTCPeerConnection(ICE_CONFIG);
       const queue = makeQueue();
+      pcs.current.set(id, { pc: null, queue });
+      const pc = new RTCPeerConnection(await getIceConfig());
+      if (!pcs.current.has(id)) return pc.close(); // peer left while we waited
       pcs.current.set(id, { pc, queue });
       pc.addTransceiver('video', { direction: 'recvonly' });
       pc.addTransceiver('audio', { direction: 'recvonly' });
@@ -79,13 +91,12 @@ export function LiveProvider({ children }) {
 
   const addPeer = useCallback(
     (id, info) => {
-      const { candidateId } = info || {};
-      if (!candidateId) return;
+      if (!info?.candidateId) return;
       setPeers((p) => {
         const next = { ...p };
         // A reconnecting candidate replaces their stale tile.
         Object.values(next).forEach((old) => {
-          if (old.info.candidateId === candidateId && old.id !== id) {
+          if (old.info.candidateId === info.candidateId && old.id !== id) {
             closePeer(old.id);
             delete next[old.id];
           }
@@ -100,12 +111,9 @@ export function LiveProvider({ children }) {
           warnings: 0,
           joinedAt: new Date().toISOString(),
           left: false,
-          submitted: null,
         };
         return next;
       });
-      storeRef.current.setCandidateOnline(candidateId, true);
-      storeRef.current.addAuditEvent(candidateId, 'Normal', 'Joined live proctoring session', info.examId);
       pushEvent({ peerId: id, name: info.name, type: 'Normal', text: 'joined the proctoring session' });
       call(id);
     },
@@ -118,44 +126,27 @@ export function LiveProvider({ children }) {
       const peer = peersRef.current[from];
       switch (payload?.kind) {
         case 'answer':
-          entry?.queue(() => entry.pc.setRemoteDescription(payload.sdp));
+          entry?.queue(() => entry.pc?.setRemoteDescription(payload.sdp));
           break;
         case 'ice':
-          entry?.queue(() => entry.pc.addIceCandidate(payload.candidate));
+          entry?.queue(() => entry.pc?.addIceCandidate(payload.candidate));
           break;
         case 'phase':
           patchPeer(from, { phase: payload.phase });
-          if (peer && payload.phase === 'in-exam') {
-            storeRef.current.addAuditEvent(peer.info.candidateId, 'Normal', 'Started exam (live proctored)', peer.info.examId);
-            pushEvent({ peerId: from, name: peer.info.name, type: 'Normal', text: 'started the exam' });
+          if (peer && payload.phase !== peer.phase) {
+            const text = { 'in-exam': 'started the exam', submitted: 'submitted the exam', terminated: 'had their exam ended' }[payload.phase];
+            if (text) pushEvent({ peerId: from, name: peer.info.name, type: 'Normal', text });
           }
           break;
         case 'progress':
           patchPeer(from, { progress: payload.progress });
           break;
-        case 'event': {
+        case 'event':
           if (!peer) break;
-          const type = ['Normal', 'Warning', 'Validation'].includes(payload.type) ? payload.type : 'Normal';
-          const text = String(payload.event || '').slice(0, 160);
-          storeRef.current.recordProctorEvent(peer.info.candidateId, type, text, peer.info.examId);
-          if (type === 'Warning') patchPeer(from, (p) => ({ warnings: p.warnings + 1 }));
-          pushEvent({ peerId: from, name: peer.info.name, type, text });
+          if (payload.type === 'Warning') patchPeer(from, (p) => ({ warnings: p.warnings + 1 }));
+          pushEvent({ peerId: from, name: peer.info.name, type: payload.type, text: payload.event });
+          if (payload.autoFlagged) pushEvent({ peerId: from, name: peer.info.name, type: 'Warning', text: 'was auto-flagged for reaching the warning limit' });
           break;
-        }
-        case 'submit': {
-          if (!peer) break;
-          const r = payload.result || {};
-          storeRef.current.addResult({
-            candidateId: peer.info.candidateId,
-            examId: peer.info.examId,
-            correct: Number(r.correct) || 0,
-            total: Number(r.total) || 0,
-            timeTaken: Number(r.timeTaken) || 0,
-          });
-          patchPeer(from, { phase: 'submitted', submitted: r });
-          pushEvent({ peerId: from, name: peer.info.name, type: 'Normal', text: `submitted the exam (${r.correct}/${r.total})` });
-          break;
-        }
         default:
       }
     },
@@ -167,7 +158,8 @@ export function LiveProvider({ children }) {
       setStatus('unsupported');
       return undefined;
     }
-    const sig = new SignalingClient('admin', { name: 'Exam Admin' }, {
+    loadRecordings();
+    const sig = new SignalingClient({
       onStatus: setStatus,
       onDisconnect: () => {
         // The server forgets us on disconnect; drop connections and rejoin cleanly.
@@ -182,13 +174,13 @@ export function LiveProvider({ children }) {
           closePeer(msg.id);
           if (peer) {
             patchPeer(msg.id, { left: true, connection: 'closed', stream: null });
-            storeRef.current.setCandidateOnline(peer.info.candidateId, false);
-            if (peer.phase !== 'submitted' && peer.phase !== 'terminated') {
-              storeRef.current.recordProctorEvent(peer.info.candidateId, 'Warning', 'Left the live session before submitting', peer.info.examId);
-            }
             pushEvent({ peerId: msg.id, name: peer.info.name, type: 'Normal', text: 'disconnected' });
           }
         } else if (msg.type === 'relay') onRelay(msg.from, msg.payload);
+        else if (msg.type === 'data-changed') {
+          storeRef.current.refreshSoon(msg.collections || []);
+          if (msg.collections?.includes('recordings')) loadRecordings();
+        }
       },
     });
     sigRef.current = sig;
@@ -201,17 +193,17 @@ export function LiveProvider({ children }) {
 
   // ---------------------------------------------------------------- commands
   const command = useCallback((id, action, text = '') => {
-    sigRef.current?.relay(id, { kind: 'command', action, text });
+    if (!sigRef.current?.relay(id, { kind: 'command', action, text })) {
+      storeRef.current.reportError('Not connected to the proctoring server. Try again in a moment.');
+      return false;
+    }
+    return true;
   }, []);
 
   const sendMessage = useCallback(
     (id, text) => {
       const peer = peersRef.current[id];
-      command(id, 'message', text);
-      if (peer) {
-        storeRef.current.addAuditEvent(peer.info.candidateId, 'Normal', `Proctor message: ${text}`, peer.info.examId);
-        pushEvent({ peerId: id, name: peer.info.name, type: 'Normal', text: `was sent a message: “${text}”` });
-      }
+      if (command(id, 'message', text) && peer) pushEvent({ peerId: id, name: peer.info.name, type: 'Normal', text: `was sent a message: “${text}”` });
     },
     [command, pushEvent]
   );
@@ -219,9 +211,7 @@ export function LiveProvider({ children }) {
   const warn = useCallback(
     (id, text) => {
       const peer = peersRef.current[id];
-      command(id, 'warn', text);
-      if (peer) {
-        storeRef.current.recordProctorEvent(peer.info.candidateId, 'Warning', `Proctor warning: ${text}`, peer.info.examId);
+      if (command(id, 'warn', text) && peer) {
         patchPeer(id, (p) => ({ warnings: p.warnings + 1 }));
         pushEvent({ peerId: id, name: peer.info.name, type: 'Warning', text: `was warned: “${text}”` });
       }
@@ -230,11 +220,15 @@ export function LiveProvider({ children }) {
   );
 
   const flag = useCallback(
-    (id, reason) => {
+    async (id, reason) => {
       const peer = peersRef.current[id];
       if (!peer) return;
-      storeRef.current.flagCandidate(peer.info.candidateId, reason, peer.info.examId);
-      pushEvent({ peerId: id, name: peer.info.name, type: 'Warning', text: `was flagged for cheating${reason ? `: ${reason}` : ''}` });
+      try {
+        await storeRef.current.flagCandidate(peer.info.candidateId, reason, peer.info.examId);
+        pushEvent({ peerId: id, name: peer.info.name, type: 'Warning', text: `was flagged for cheating${reason ? `: ${reason}` : ''}` });
+      } catch {
+        /* error already shown */
+      }
     },
     [pushEvent]
   );
@@ -242,9 +236,7 @@ export function LiveProvider({ children }) {
   const terminate = useCallback(
     (id, reason) => {
       const peer = peersRef.current[id];
-      command(id, 'terminate', reason);
-      if (peer) {
-        storeRef.current.addAuditEvent(peer.info.candidateId, 'Warning', `Exam terminated by proctor${reason ? `: ${reason}` : ''}`, peer.info.examId);
+      if (command(id, 'terminate', reason) && peer) {
         patchPeer(id, { phase: 'terminated' });
         pushEvent({ peerId: id, name: peer.info.name, type: 'Warning', text: 'had their exam terminated' });
       }
@@ -253,6 +245,23 @@ export function LiveProvider({ children }) {
   );
 
   // ---------------------------------------------------------------- recording
+  const upload = useCallback(
+    async (item) => {
+      setUploads((u) => [...u.filter((x) => x.id !== item.id), { ...item, state: 'uploading' }]);
+      const mime = item.blob.type.split(';')[0] || 'video/webm';
+      const q = new URLSearchParams({ candidateId: item.candidateId, examId: item.examId || '', duration: String(item.duration) });
+      try {
+        await api(`/recordings?${q}`, { method: 'POST', body: item.blob, raw: true, headers: { 'Content-Type': mime } });
+        setUploads((u) => u.filter((x) => x.id !== item.id));
+        URL.revokeObjectURL(item.url);
+        loadRecordings();
+      } catch (err) {
+        setUploads((u) => u.map((x) => (x.id === item.id ? { ...x, state: 'failed', error: err.message } : x)));
+      }
+    },
+    [loadRecordings]
+  );
+
   const startRecording = useCallback(
     (id) => {
       const peer = peersRef.current[id];
@@ -264,56 +273,64 @@ export function LiveProvider({ children }) {
       } catch {
         return false;
       }
-      const rec = { recorder, chunks: [], startedAt: Date.now(), name: peer.info.name, candidateId: peer.info.candidateId };
+      const rec = { recorder, chunks: [], startedAt: Date.now(), name: peer.info.name, candidateId: peer.info.candidateId, examId: peer.info.examId };
       recorder.ondataavailable = (e) => e.data.size && rec.chunks.push(e.data);
       recorder.onstop = () => {
         recorders.current.delete(id);
         setRecordingIds((ids) => ids.filter((x) => x !== id));
         if (!rec.chunks.length) return;
-        const type = recorder.mimeType || 'video/webm';
-        const blob = new Blob(rec.chunks, { type });
-        const ext = type.includes('mp4') ? 'mp4' : 'webm';
-        const stamp = new Date(rec.startedAt).toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        setRecordings((list) => [
-          {
-            id: `${id}-${rec.startedAt}`,
-            name: rec.name,
-            candidateId: rec.candidateId,
-            url: URL.createObjectURL(blob),
-            size: blob.size,
-            duration: Math.round((Date.now() - rec.startedAt) / 1000),
-            fileName: `${rec.candidateId}-${stamp}.${ext}`,
-            at: new Date(rec.startedAt).toISOString(),
-          },
-          ...list,
-        ]);
-        storeRef.current.addAuditEvent(rec.candidateId, 'Validation', 'Proctor saved a session recording', peer.info.examId);
+        const blob = new Blob(rec.chunks, { type: recorder.mimeType || 'video/webm' });
+        upload({
+          id: `${id}-${rec.startedAt}`,
+          name: rec.name,
+          candidateId: rec.candidateId,
+          examId: rec.examId,
+          blob,
+          url: URL.createObjectURL(blob),
+          size: blob.size,
+          duration: Math.round((Date.now() - rec.startedAt) / 1000),
+          at: new Date(rec.startedAt).toISOString(),
+        });
       };
       recorder.start(1000);
       recorders.current.set(id, rec);
       setRecordingIds((ids) => [...ids, id]);
-      storeRef.current.addAuditEvent(peer.info.candidateId, 'Validation', 'Proctor started recording the session', peer.info.examId);
       return true;
     },
-    []
+    [upload]
   );
 
-  const deleteRecording = useCallback((recId) => {
-    setRecordings((list) => {
-      const r = list.find((x) => x.id === recId);
-      if (r) URL.revokeObjectURL(r.url);
-      return list.filter((x) => x.id !== recId);
+  const deleteRecording = useCallback(
+    async (recId) => {
+      try {
+        await api(`/recordings/${recId}`, { method: 'DELETE' });
+        loadRecordings();
+      } catch (err) {
+        storeRef.current.reportError(err.message);
+      }
+    },
+    [loadRecordings]
+  );
+
+  const discardUpload = useCallback((uploadId) => {
+    setUploads((u) => {
+      const it = u.find((x) => x.id === uploadId);
+      if (it) URL.revokeObjectURL(it.url);
+      return u.filter((x) => x.id !== uploadId);
     });
   }, []);
 
-  const dismissPeer = useCallback((id) => {
-    closePeer(id);
-    setPeers((p) => {
-      const next = { ...p };
-      delete next[id];
-      return next;
-    });
-  }, [closePeer]);
+  const dismissPeer = useCallback(
+    (id) => {
+      closePeer(id);
+      setPeers((p) => {
+        const next = { ...p };
+        delete next[id];
+        return next;
+      });
+    },
+    [closePeer]
+  );
 
   const value = useMemo(
     () => ({
@@ -321,6 +338,7 @@ export function LiveProvider({ children }) {
       peers: Object.values(peers).sort((a, b) => a.joinedAt.localeCompare(b.joinedAt)),
       events,
       recordings,
+      uploads,
       recordingIds,
       sendMessage,
       warn,
@@ -329,10 +347,12 @@ export function LiveProvider({ children }) {
       startRecording,
       stopRecording,
       deleteRecording,
+      retryUpload: upload,
+      discardUpload,
       dismissPeer,
       clearEvents: () => setEvents([]),
     }),
-    [status, peers, events, recordings, recordingIds, sendMessage, warn, flag, terminate, startRecording, stopRecording, deleteRecording, dismissPeer]
+    [status, peers, events, recordings, uploads, recordingIds, sendMessage, warn, flag, terminate, startRecording, stopRecording, deleteRecording, upload, discardUpload, dismissPeer]
   );
 
   return <LiveContext.Provider value={value}>{children}</LiveContext.Provider>;

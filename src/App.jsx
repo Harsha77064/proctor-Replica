@@ -2,8 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Library, ClipboardList, Trophy, MessageSquareText, ShieldCheck, BarChart3, Settings as SettingsIcon,
-  Menu, Search, Bell, Sun, Moon, AlertTriangle, Flag, Video,
+  Menu, Search, Bell, Sun, Moon, AlertTriangle, Flag, Video, Users as UsersIcon, LogOut, X, Loader2,
 } from 'lucide-react';
+import { AuthProvider, useAuth } from './context/AuthContext.jsx';
+import { StoreProvider } from './context/StoreContext.jsx';
+import Login from './pages/Login.jsx';
+import Setup from './pages/Setup.jsx';
+import Users from './pages/Users.jsx';
 import { LiveProvider, useLive } from './live/LiveContext.jsx';
 import LiveMonitoring from './pages/LiveMonitoring.jsx';
 import CandidatePortal from './pages/CandidatePortal.jsx';
@@ -40,8 +45,25 @@ export default function App() {
   return (
     <Routes>
       <Route path="/exam" element={<CandidateApp />} />
-      <Route path="/*" element={<LiveProvider><AdminApp /></LiveProvider>} />
+      <Route path="/*" element={<AuthProvider><StaffGate /></AuthProvider>} />
     </Routes>
+  );
+}
+
+/** Shows setup on a fresh install, sign-in when signed out, otherwise the admin app. */
+function StaffGate() {
+  useTheme();
+  const auth = useAuth();
+  if (auth.loading) {
+    return <div className="auth-page"><Loader2 className="spin muted" size={28} /></div>;
+  }
+  if (!auth.user) return auth.needsSetup ? <Setup /> : <Login />;
+  return (
+    <StoreProvider key={auth.user.id}>
+      <LiveProvider>
+        <AdminApp />
+      </LiveProvider>
+    </StoreProvider>
   );
 }
 
@@ -51,7 +73,8 @@ function CandidateApp() {
 }
 
 function AdminApp() {
-  const { settings, exams, candidates, auditLogs } = useStore();
+  const { settings, exams, candidates, auditLogs, error, clearError } = useStore();
+  const { user, isAdmin, logout } = useAuth();
   const live = useLive();
   const [open, setOpen] = useState(false);
   const [theme, setTheme] = useTheme();
@@ -76,6 +99,7 @@ function AdminApp() {
     { to: '/reports', label: 'Reports', icon: BarChart3 },
     { section: 'System' },
     { to: '/settings', label: 'Settings', icon: SettingsIcon },
+    { to: '/users', label: isAdmin ? 'Users' : 'My Account', icon: UsersIcon },
   ];
 
   return (
@@ -102,7 +126,7 @@ function AdminApp() {
           )}
         </nav>
         <div className="org-card">
-          <img src={org.logoUrl} alt="" onError={(e) => (e.currentTarget.style.visibility = 'hidden')} />
+          {org.logoUrl ? <img src={org.logoUrl} alt="" onError={(e) => (e.currentTarget.style.visibility = 'hidden')} /> : <span className="org-initial">{(org.name || 'O')[0]}</span>}
           <div>
             <div className="org-name">{org.name}</div>
             <div className="org-mail">{org.supportEmail}</div>
@@ -127,11 +151,18 @@ function AdminApp() {
             </button>
             <Notifications logs={auditLogs} candidates={candidates} />
             <div className="user-chip">
-              <div className="who"><b>Exam Admin</b><span>Administrator</span></div>
-              <Avatar name="Exam Admin" />
+              <div className="who"><b>{user.name}</b><span>{isAdmin ? 'Administrator' : 'Proctor'}</span></div>
+              <Avatar name={user.name} />
+              <button className="icon-btn" onClick={logout} title="Sign out" aria-label="Sign out"><LogOut size={18} /></button>
             </div>
           </div>
         </header>
+        {error && (
+          <div className="error-banner" role="alert">
+            <AlertTriangle size={16} /> <span>{error}</span>
+            <button className="icon-btn" onClick={clearError} aria-label="Dismiss"><X size={16} /></button>
+          </div>
+        )}
         <main className="content" key={location.pathname}>
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
@@ -144,6 +175,7 @@ function AdminApp() {
             <Route path="/audit-logs" element={<AuditLogs />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/users" element={<Users />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </main>

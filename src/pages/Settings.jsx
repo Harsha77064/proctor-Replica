@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '../context/StoreContext.jsx';
-import { Building2, ClipboardCheck, ShieldCheck, Bell, RotateCcw, Save, CheckCircle2 } from 'lucide-react';
+import { Building2, ClipboardCheck, ShieldCheck, Bell, Save, CheckCircle2, Lock } from 'lucide-react';
+import { useAuth } from '../context/AuthContext.jsx';
 import { PageHeader, Field, Toggle, Toast } from '../components/UI.jsx';
 
 const SECTIONS = [
@@ -11,7 +12,8 @@ const SECTIONS = [
 ];
 
 export default function Settings() {
-  const { settings, updateSettings, resetDemoData } = useStore();
+  const { settings, updateSettings } = useStore();
+  const { isAdmin } = useAuth();
   const [section, setSection] = useState('organization');
   const [draft, setDraft] = useState(settings[section]);
   const [saved, setSaved] = useState(false);
@@ -22,20 +24,18 @@ export default function Settings() {
   const num = (k) => (e) => set(k, Number(e.target.value));
   const save = (e) => {
     e.preventDefault();
-    updateSettings(section, draft);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    updateSettings(section, draft)
+      .then(() => {
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2000);
+      })
+      .catch(() => {});
   };
 
   return (
     <>
       <PageHeader title="Settings" subtitle="Organization profile, exam defaults, security and notifications" crumb="System">
-        <button
-          className="btn danger-ghost"
-          onClick={() => confirm('Reset all demo data? Your changes will be lost.') && resetDemoData()}
-        >
-          <RotateCcw size={15} /> Reset Demo Data
-        </button>
+        {!isAdmin && <span className="server-status badge-gray"><Lock size={14} /> View only: ask an admin to change settings</span>}
       </PageHeader>
 
       <div className="settings-layout">
@@ -116,7 +116,7 @@ export default function Settings() {
 
         <div className="modal-actions">
           <button type="button" className="btn ghost" onClick={() => setDraft(settings[section])}>Discard</button>
-          <button className="btn primary"><Save size={15} /> Save Changes</button>
+          <button className="btn primary" disabled={!isAdmin}><Save size={15} /> Save Changes</button>
         </div>
       </form>
       </div>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useStore, byId, fmtDateTime } from '../context/StoreContext.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
 import { Star, Send, Trash2, MessageSquareText, CheckCircle2 } from 'lucide-react';
 import { PageHeader, Badge, Field, Empty, Person, SearchInput, Toast } from '../components/UI.jsx';
 
@@ -20,6 +21,7 @@ const Stars = ({ value, onChange }) => (
 
 export default function Feedback() {
   const { feedback, candidates, exams, results, sendFeedback, deleteFeedback } = useStore();
+  const { isAdmin } = useAuth();
   const location = useLocation();
   const preset = location.state?.resultId ? byId(results, location.state.resultId) : null;
 
@@ -32,16 +34,20 @@ export default function Feedback() {
   const [filter, setFilter] = useState('');
   const [sent, setSent] = useState(false);
 
-  const candidate = byId(candidates, form.candidateId);
+  const candidate = byId(candidates, form.candidateId) || candidates[0];
   const candidateExams = exams.filter((e) => candidate?.assignedExams.includes(e.id));
+  const candidateId = candidate?.id || '';
   const result = results.find((r) => r.candidateId === form.candidateId && r.examId === form.examId);
 
   const submit = (e) => {
     e.preventDefault();
-    sendFeedback({ ...form, sentBy: 'Exam Administrator' });
-    setForm({ ...form, message: '' });
-    setSent(true);
-    setTimeout(() => setSent(false), 2500);
+    sendFeedback({ ...form, candidateId })
+      .then(() => {
+        setForm({ ...form, candidateId, message: '' });
+        setSent(true);
+        setTimeout(() => setSent(false), 2500);
+      })
+      .catch(() => {});
   };
 
   const list = feedback.filter((f) =>
@@ -61,7 +67,7 @@ export default function Feedback() {
             <Field label="Candidate">
               <select
                 className="input"
-                value={form.candidateId}
+                value={candidateId}
                 onChange={(e) => setForm({ ...form, candidateId: e.target.value, examId: '' })}
               >
                 {candidates.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.id})</option>)}
@@ -110,7 +116,7 @@ export default function Feedback() {
                     <Person name={c?.name || f.candidateId} sub={`${ex?.title || ''} · ${fmtDateTime(f.sentAt)}`} />
                     <div className="row-actions">
                       <Stars value={f.rating} />
-                      <button className="icon-btn" title="Delete" aria-label="Delete feedback" onClick={() => deleteFeedback(f.id)}><Trash2 size={15} /></button>
+                      {isAdmin && <button className="icon-btn" title="Delete" aria-label="Delete feedback" onClick={() => deleteFeedback(f.id)}><Trash2 size={15} /></button>}
                     </div>
                   </div>
                   <p>{f.message}</p>
